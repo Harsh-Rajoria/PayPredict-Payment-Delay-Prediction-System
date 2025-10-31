@@ -1,48 +1,225 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <title>PayPredict</title>
-  <link rel="stylesheet" href="../static/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>💼 PayPredict — AI Payment Delay Prediction</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body>
-  <h2>💼 PayPredict — Payment Delay Prediction</h2>
+  <div class="theme-toggle" onclick="toggleTheme()">
+    <span id="theme-icon">🌙</span>
+  </div>
 
-  <section>
-    <h3>Predict from JSON</h3>
-    <textarea id="jsonInput" rows="8" cols="80">
-{"LIMIT_BAL":20000,"SEX":1,"EDUCATION":2,"MARRIAGE":1,"AGE":30,"PAY_0":0,"PAY_2":0,"PAY_3":0,"PAY_4":0,"PAY_5":0,"PAY_6":0,"BILL_AMT1":1000,"BILL_AMT2":1200,"BILL_AMT3":1100,"BILL_AMT4":900,"BILL_AMT5":0,"BILL_AMT6":500,"PAY_AMT1":1000,"PAY_AMT2":1200,"PAY_AMT3":1100,"PAY_AMT4":900,"PAY_AMT5":0,"PAY_AMT6":500}
-    </textarea><br>
-    <button onclick="predictJSON()">Predict</button>
-    <pre id="jsonResult">Result will appear here...</pre>
-  </section>
+  <!-- Loader -->
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <p>Processing your data... Please wait</p>
+  </div>
 
-  <section>
-    <h3>Predict from CSV</h3>
-    <input type="file" id="csvfile">
-    <button onclick="predictFile()">Upload & Predict</button>
-    <pre id="fileResult">No file uploaded yet</pre>
-  </section>
+  <div class="wrapper fade-in">
+    <h1 class="title">💼 PayPredict</h1>
+    <p class="subtitle">AI-powered system for predicting and monitoring customer payment delays</p>
 
-<script>
-async function predictJSON(){
-  const data = document.getElementById("jsonInput").value;
-  const resp = await fetch("/predict", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: data
-  });
-  const res = await resp.json();
-  document.getElementById("jsonResult").textContent = JSON.stringify(res, null, 2);
-}
-async function predictFile(){
-  const f = document.getElementById("csvfile").files[0];
-  const fd = new FormData();
-  fd.append("file", f);
-  const resp = await fetch("/predict_file", {method:"POST", body:fd});
-  const res = await resp.json();
-  document.getElementById("fileResult").textContent = JSON.stringify(res, null, 2);
-}
-</script>
+    <!-- JSON Prediction -->
+    <div class="card glass fade-in-delay-1">
+      <h2>🧠 Predict from JSON</h2>
+      <textarea id="jsonInput" rows="7" placeholder='Paste or edit JSON here...'></textarea>
+      <button class="btn" onclick="predictJSON()">Predict</button>
+      <div id="jsonTableContainer"></div>
+    </div>
+
+    <!-- CSV Prediction -->
+    <div class="card glass fade-in-delay-2">
+      <h2>📁 Predict from CSV</h2>
+      <input type="file" id="csvfile" accept=".csv" />
+      <button class="btn" onclick="predictFile()">Upload & Predict</button>
+      <div id="fileTableContainer"></div>
+    </div>
+
+    <!-- Dashboard Analytics -->
+    <div class="card glass fade-in-delay-3">
+      <h2>📊 Live AI Analytics Dashboard</h2>
+      <div class="chart-metrics">
+        <div class="metric"><span id="totalCount">0</span><p>Total Predictions</p></div>
+        <div class="metric"><span id="delayedCount">0</span><p>Delayed Customers</p></div>
+        <div class="metric"><span id="ontimeCount">0</span><p>On-Time Customers</p></div>
+        <div class="metric"><span id="avgConfidence">0%</span><p>Avg Confidence</p></div>
+      </div>
+      <div class="charts">
+        <canvas id="pieChart"></canvas>
+        <canvas id="barChart"></canvas>
+      </div>
+      <p class="refresh-note">🔄 Auto-updating every 30 seconds...</p>
+    </div>
+  </div>
+
+  <footer class="fade-in-delay-3">
+    <p>🚀 Built with ❤️ by <span>Harsh Rajoria</span> | PayPredict v6.0 (Real-Time AI Dashboard)</p>
+  </footer>
+
+  <script>
+    let pieChart, barChart;
+    let analytics = { total: 0, delayed: 0, ontime: 0, confidences: [] };
+
+    function toggleTheme() {
+      document.body.classList.toggle("light-mode");
+      const icon = document.getElementById("theme-icon");
+      icon.textContent = document.body.classList.contains("light-mode") ? "☀️" : "🌙";
+    }
+
+    function showLoading(show) {
+      document.getElementById("loading-overlay").style.display = show ? "flex" : "none";
+    }
+
+    function renderTable(results, containerId) {
+      if (!results || results.length === 0) {
+        document.getElementById(containerId).innerHTML = "<p>No results.</p>";
+        return;
+      }
+
+      let html = `
+        <table class="result-table">
+          <tr><th>Customer #</th><th>Prediction</th><th>Probability</th></tr>`;
+      
+      results.forEach((r, i) => {
+        const isDelayed = r.prediction === 1;
+        const color = isDelayed ? "#ff4b5c" : "#00ff88";
+        const label = isDelayed ? "🔴 Delayed" : "🟢 On-Time";
+        const probPercent = (r.probability * 100).toFixed(1);
+
+        html += `
+          <tr>
+            <td>${i + 1}</td>
+            <td style="color:${color}; font-weight:bold">${label}</td>
+            <td>
+              <div class="prob-bar-container">
+                <div class="prob-bar" data-value="${probPercent}" style="background:${color}; width:0%"></div>
+                <span class="prob-text">${probPercent}%</span>
+              </div>
+            </td>
+          </tr>`;
+      });
+      html += `</table>`;
+      document.getElementById(containerId).innerHTML = html;
+
+      animateBars();
+      updateAnalytics(results);
+    }
+
+    function animateBars() {
+      document.querySelectorAll(".prob-bar").forEach(bar => {
+        const value = bar.getAttribute("data-value");
+        setTimeout(() => {
+          bar.style.width = value + "%";
+        }, 200);
+      });
+    }
+
+    function updateAnalytics(results) {
+      const delayed = results.filter(r => r.prediction === 1).length;
+      const ontime = results.length - delayed;
+      const avgProb = results.reduce((a, b) => a + b.probability, 0) / results.length;
+
+      analytics.total += results.length;
+      analytics.delayed += delayed;
+      analytics.ontime += ontime;
+      analytics.confidences.push(...results.map(r => r.probability));
+
+      renderAnalytics();
+    }
+
+    function renderAnalytics() {
+      document.getElementById("totalCount").textContent = analytics.total;
+      document.getElementById("delayedCount").textContent = analytics.delayed;
+      document.getElementById("ontimeCount").textContent = analytics.ontime;
+      const avgConf = (analytics.confidences.reduce((a, b) => a + b, 0) / analytics.confidences.length) * 100;
+      document.getElementById("avgConfidence").textContent = avgConf.toFixed(1) + "%";
+
+      updateCharts(analytics);
+    }
+
+    function updateCharts(data) {
+      const ctxPie = document.getElementById("pieChart").getContext("2d");
+      const ctxBar = document.getElementById("barChart").getContext("2d");
+
+      if (pieChart) pieChart.destroy();
+      if (barChart) barChart.destroy();
+
+      pieChart = new Chart(ctxPie, {
+        type: "doughnut",
+        data: {
+          labels: ["On-Time", "Delayed"],
+          datasets: [{
+            data: [data.ontime, data.delayed],
+            backgroundColor: ["#00ff88", "#ff4b5c"],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          plugins: { legend: { labels: { color: "#fff" } } },
+          cutout: "70%"
+        }
+      });
+
+      barChart = new Chart(ctxBar, {
+        type: "bar",
+        data: {
+          labels: Array.from({ length: data.confidences.length }, (_, i) => `C${i + 1}`),
+          datasets: [{
+            label: "Confidence (%)",
+            data: data.confidences.map(v => (v * 100).toFixed(1)),
+            backgroundColor: data.confidences.map(v => v > 0.6 ? "#ff4b5c" : "#00ff88")
+          }]
+        },
+        options: {
+          plugins: { legend: { labels: { color: "#fff" } } },
+          scales: {
+            x: { ticks: { color: "#ccc" } },
+            y: { ticks: { color: "#ccc" }, beginAtZero: true, max: 100 }
+          }
+        }
+      });
+    }
+
+    // 🕒 Auto-refresh dashboard every 30 seconds
+    setInterval(() => {
+      renderAnalytics();
+    }, 30000);
+
+    async function predictJSON() {
+      const data = document.getElementById("jsonInput").value;
+      showLoading(true);
+      try {
+        const resp = await fetch("/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: data
+        });
+        const res = await resp.json();
+        if (res.results) renderTable(res.results, "jsonTableContainer");
+        else document.getElementById("jsonTableContainer").innerText = res.error || "Error!";
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    async function predictFile() {
+      const f = document.getElementById("csvfile").files[0];
+      const fd = new FormData();
+      fd.append("file", f);
+      showLoading(true);
+      try {
+        const resp = await fetch("/predict_file", { method: "POST", body: fd });
+        const res = await resp.json();
+        if (res.results) renderTable(res.results, "fileTableContainer");
+        else document.getElementById("fileTableContainer").innerText = res.error || "Error!";
+      } finally {
+        showLoading(false);
+      }
+    }
+  </script>
 </body>
 </html>
